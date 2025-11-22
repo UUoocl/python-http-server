@@ -1,5 +1,7 @@
 '''
 # An OBS Python Script to create an HTTP server
+Copy websocket server details from the Text Source "wssDetails" to a js file
+in the script directory. 
 # Add pages to the script folder to run local apps
 '''
 
@@ -9,6 +11,10 @@ import socketserver
 import threading
 import os
 
+
+'''
+HTTP Server functions
+'''
 # --- Configuration ---
 HOST_NAME = "localhost" # 127.0.0.1
 PORT_NUMBER = 8080 # Changed to a common HTTP port
@@ -98,8 +104,9 @@ def start_server_in_thread():
         if httpd:
             httpd.server_close()
         
-
-# script functions
+'''
+# OBS script functions
+'''
 def script_load(settings):
     global SCRIPT_PATH
     global server_thread
@@ -111,6 +118,18 @@ def script_load(settings):
         server_thread.daemon = True 
         server_thread.start()
         obs.script_log(obs.LOG_INFO, "HTTP Server Thread Initialized.")
+
+    # Attach signal handlers to keyHotkey text source
+    source_name = "wssDetails"
+    print(f"source name {source_name}")
+    source = obs.obs_get_source_by_name(source_name)
+    print(f"source object {source}")
+    if source:
+        signal_handler = obs.obs_source_get_signal_handler(source)
+        obs.signal_handler_connect(signal_handler,"update", source_signal_callback)
+        obs.obs_source_release(source)
+    else:
+        print(f"Source {source_name} not found for signal handler.")
 
 def script_unload():
     global httpd, server_thread
@@ -126,6 +145,19 @@ def script_unload():
     #     server_thread.join(timeout=1.0)
     #     obs.script_log(obs.LOG_INFO, "HTTP Server Thread Cleanly Shut Down.")
 
+    # remove signal handlers to keyHotkey text source
+    source_name = "wssDetails"
+    print(f"source name {source_name}")
+    source = obs.obs_get_source_by_name(source_name)
+    print(f"source object {source}")
+    try:
+        if source:
+            handler = obs.obs_source_get_signal_handler(source)
+            obs.signal_handler_disconnect(handler,"update", source_signal_callback)
+            obs.obs_source_release(source)
+    except Exception as e:
+        print("no source signal to remove")
+
 def script_description():
     return (
         "<h2>OBS HTTP Localhost Server</h2>"
@@ -135,3 +167,49 @@ def script_description():
 
 def script_update(settings):
     pass
+
+'''
+Source Signal functions
+'''
+# -- Create or update a file with the wssDetials text source content
+
+def source_signal_callback(calldata):
+    global SCRIPT_PATH
+
+# update the websocketDetails.js file
+    try:
+        # 1. The name of the file to update/create
+        file_name = "websocketDetails.js"
+
+        # 2. The variable holding the content you want to write to the file
+        source = obs.calldata_source(calldata,"source")
+        # find client that matches updated text source
+        source_settings = obs.obs_source_get_settings(source)
+        text = obs.obs_data_get_string(source_settings, "text").replace(" ","")
+        print(f"source text {type(text)} {text}")
+
+        # --- File Operation ---
+        script_dir = os.path.dirname(SCRIPT_PATH)
+        requested_file = file_name
+        file_path = os.path.join(script_dir, requested_file)
+
+        # Check if the file already exists (for logging/printing a message)
+        file_existed = os.path.exists(file_path)
+
+        # Use the 'with' statement for safe file handling (ensures the file is closed)
+        # The 'w' mode:
+        # 1. Creates the file if it doesn't exist.
+        # 2. Overwrites the file if it does exist.
+        with open(file_path, 'w') as file:
+            file.write(f"let wssDetails = {text}")
+        
+        # --- Output/Confirmation ---
+        if file_existed:
+            print(f"Successfully **updated** the existing file: '{file_name}'")
+        else:
+            print(f"File did not exist. Successfully **created** the new file: '{file_name}'")
+            
+        obs.obs_data_release(source_settings)
+      
+    except Exception as e:
+        print(f"An error occurred during file operation: {e}")
